@@ -209,7 +209,7 @@ const FlightSearch = () => {
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-neonCyan/10 rounded-full mix-blend-screen filter blur-[120px] pointer-events-none"></div>
       
       <div className="space-y-8 relative z-10">
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="glass-panel rounded-3xl p-8 border border-white/10 relative overflow-hidden">
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="glass-panel rounded-3xl p-8 border border-white/10 relative">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-neonCyan to-neonPurple"></div>
           <h2 className="text-4xl font-extrabold mb-8 text-white tracking-tight">Locate Flights</h2>
           
