@@ -7,6 +7,7 @@ import Register from './pages/Register';
 import FlightSearch from './pages/FlightSearch';
 import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import Admin from './Admin';
 import MyTickets from './pages/MyTickets';
 import AIChat from './components/AIChat';
 import { Plane, Sparkles } from 'lucide-react';
@@ -97,6 +98,7 @@ function AppContent() {
           <Route path="/search" element={<FlightSearch />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin-portal" element={<Admin />} />
           <Route path="/tickets" element={<MyTickets />} />
         </Routes>
       </main>
