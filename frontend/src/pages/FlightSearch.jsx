@@ -1,7 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useContext } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { PlaneTakeoff, PlaneLanding, Calendar, Search, SlidersHorizontal, X, MapPin, Clock, AlertCircle, Info, Loader2, CheckCircle, User, CreditCard } from 'lucide-react';
 import { useCurrency } from '../context/CurrencyContext';
+import { AuthContext } from '../context/AuthContext';
+import StripeCheckout from '../components/StripeCheckout';
+import { createPaymentIntent, confirmBooking, searchDuffelFlights } from '../services/bookingApi';
 import airportLookup from '../data/airportLookup.json';
 
 const matchesAirport = (code, query) => {
@@ -17,23 +21,30 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const FlightSearch = () => {
   const { formatCurrency } = useCurrency();
+  const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
   const [selectedFlight, setSelectedFlight] = useState(null);
   const dateRef = useRef(null);
   const [allFlights, setAllFlights] = useState([]);
   const [loading, setLoading] = useState(true);
   const [visibleCount, setVisibleCount] = useState(20);
   const [hasSearched, setHasSearched] = useState(false);
-  const [checkoutStep, setCheckoutStep] = useState(0); // 0=details, 1=form, 2=confirmed
+  const [checkoutStep, setCheckoutStep] = useState(0);
+  const [checkoutMode, setCheckoutMode] = useState(null); // 'stripe' | 'demo'
   const [bookingRef, setBookingRef] = useState('');
   const [passengerName, setPassengerName] = useState('');
   const [passengerEmail, setPassengerEmail] = useState('');
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCvv, setCardCvv] = useState('');
   const [formError, setFormError] = useState('');
   const [seat, setSeat] = useState('');
   const [emailSending, setEmailSending] = useState(false);
   const [etherealUrl, setEtherealUrl] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [bookingId, setBookingId] = useState('');
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [useDuffelLive, setUseDuffelLive] = useState(false);
+  const [duffelSearching, setDuffelSearching] = useState(false);
+  const [duffelError, setDuffelError] = useState('');
+  const [emailDeliveryFailed, setEmailDeliveryFailed] = useState(false);
 
   const handleGenerateDemoTicket = async () => {
     if (!passengerName.trim() || !passengerEmail.trim()) {
@@ -89,6 +100,131 @@ const FlightSearch = () => {
       setFormError('Network error: Unable to connect to backend server');
     } finally {
       setEmailSending(false);
+    }
+  };
+
+  const buildFlightSnapshot = (flight) => ({
+    airline: flight.airline,
+    flightNumber: flight.flightNumber,
+    from: flight.from,
+    to: flight.to,
+    price: flight.price,
+    currency: flight.currency || 'usd',
+    duration: flight.duration,
+    time: flight.time,
+    departureTerminal: flight.departureTerminal,
+    arrivalTerminal: flight.arrivalTerminal,
+    departureGate: flight.departureGate,
+    arrivalGate: flight.arrivalGate,
+    logo: flight.logo,
+    status: flight.status || 'On Time',
+    cabinClass: flight.cabinClass || 'economy',
+    duffelOfferId: flight.duffelOfferId,
+  });
+
+  const handlePrepareStripeCheckout = async () => {
+    if (!user?.token) {
+      setFormError('Please log in to complete a secure booking');
+      navigate('/login');
+      return;
+    }
+    if (!passengerName.trim() || !passengerEmail.trim() || !passengerEmail.includes('@')) {
+      setFormError('Valid passenger name and email are required');
+      return;
+    }
+
+    setPaymentLoading(true);
+    setFormError('');
+    try {
+      const [firstName, ...rest] = passengerName.trim().split(' ');
+      const lastName = rest.join(' ') || firstName;
+      const amountCents = Math.round((selectedFlight.price || 0) * 100);
+      const idempotencyKey = `book-${user._id}-${selectedFlight.flightNumber}-${Date.now()}`;
+
+      const data = await createPaymentIntent(
+        {
+          amount: amountCents,
+          currency: 'usd',
+          contactEmail: passengerEmail,
+          idempotencyKey,
+          flightSnapshot: buildFlightSnapshot(selectedFlight),
+          passengers: [{ firstName, lastName, name: passengerName, email: passengerEmail }],
+        },
+        user.token
+      );
+
+      setClientSecret(data.clientSecret);
+      setBookingId(data.bookingId);
+      setBookingRef(data.bookingRef);
+      setCheckoutStep(3);
+    } catch (err) {
+      setFormError(err.message || 'Unable to start payment');
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  const handlePaymentSuccess = async (paymentIntent) => {
+    setPaymentLoading(true);
+    setFormError('');
+    try {
+      const data = await confirmBooking(
+        { paymentIntentId: paymentIntent.id, bookingId },
+        user.token
+      );
+      setSeat(data.seat || seat);
+      setBookingRef(data.booking?.bookingRef || bookingRef);
+      setEtherealUrl(data.etherealUrl || '');
+      setEmailDeliveryFailed(Boolean(data.emailFailed));
+      setCheckoutStep(4);
+    } catch (err) {
+      setFormError(err.message || 'Payment succeeded but confirmation failed. Contact support with your payment ID.');
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  const handleDuffelSearch = async () => {
+    if (!searchFrom.trim() || !searchTo.trim() || !searchDate) {
+      setDuffelError('Enter origin, destination, and date for live Duffel search');
+      return;
+    }
+    setDuffelSearching(true);
+    setDuffelError('');
+    try {
+      const fromCode = fromSuggestions[0]?.code || searchFrom.trim().toUpperCase().slice(0, 3);
+      const toCode = toSuggestions[0]?.code || searchTo.trim().toUpperCase().slice(0, 3);
+      const result = await searchDuffelFlights({
+        origin: fromCode,
+        destination: toCode,
+        departureDate: searchDate,
+      });
+      const mapped = (result.offers || []).map((o) => ({
+        airline: o.airline,
+        flightNumber: o.flightNumber || 'LIVE',
+        from: o.from,
+        to: o.to,
+        price: parseFloat(o.totalAmount) || 0,
+        currency: o.totalCurrency || 'usd',
+        duration: o.duration || '—',
+        time: o.departureAt ? `${new Date(o.departureAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(o.arrivalAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'TBD',
+        status: 'Available',
+        duffelOfferId: o.id,
+        logo: null,
+        departureTerminal: 'TBD',
+        arrivalTerminal: 'TBD',
+        departureGate: 'TBD',
+        arrivalGate: 'TBD',
+        delay: 'None',
+      }));
+      setAllFlights(mapped.length ? mapped : allFlights);
+      setHasSearched(true);
+      setActiveSearch({ from: searchFrom.trim().toLowerCase(), to: searchTo.trim().toLowerCase() });
+      if (!mapped.length) setDuffelError('No live offers found for this route/date');
+    } catch (err) {
+      setDuffelError(err.message);
+    } finally {
+      setDuffelSearching(false);
     }
   };
 
@@ -153,10 +289,14 @@ const FlightSearch = () => {
   };
 
   const handleSearch = () => {
+    if (useDuffelLive) {
+      handleDuffelSearch();
+      return;
+    }
     setActiveSearch({ from: searchFrom.trim().toLowerCase(), to: searchTo.trim().toLowerCase() });
     setHasSearched(true);
     setVisibleCount(20);
-    setSelectedCarriers([]); // Reset carrier filter on new search
+    setSelectedCarriers([]);
   };
 
   // Popular airlines to feature as defaults
@@ -209,7 +349,7 @@ const FlightSearch = () => {
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-neonCyan/10 rounded-full mix-blend-screen filter blur-[120px] pointer-events-none"></div>
       
       <div className="space-y-8 relative z-10">
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="glass-panel rounded-3xl p-8 border border-white/10 relative">
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="glass-panel rounded-3xl p-8 border border-white/10 relative z-20">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-neonCyan to-neonPurple"></div>
           <h2 className="text-4xl font-extrabold mb-8 text-white tracking-tight">Locate Flights</h2>
           
@@ -298,8 +438,14 @@ const FlightSearch = () => {
               <Calendar className="text-neonPurple mr-3 shrink-0" size={20} />
               <input ref={dateRef} type="date" value={searchDate} onChange={e => setSearchDate(e.target.value)} className="outline-none w-full bg-transparent text-white text-sm opacity-80 cursor-pointer [color-scheme:dark]" style={{ minHeight: '24px' }} />
             </div>
-            <button onClick={handleSearch} className="neon-button bg-gradient-to-r from-neonCyan to-blue-600 rounded-xl font-bold flex items-center justify-center p-3">
-              <Search className="mr-2" size={20} /> Execute Search
+            <label className="flex items-center gap-2 text-xs text-gray-400 px-1 cursor-pointer">
+              <input type="checkbox" checked={useDuffelLive} onChange={(e) => setUseDuffelLive(e.target.checked)} className="rounded" />
+              Live Duffel offers (requires API key)
+            </label>
+            {duffelError && <p className="text-red-400 text-xs px-1">{duffelError}</p>}
+            <button onClick={handleSearch} disabled={duffelSearching} className="neon-button bg-gradient-to-r from-neonCyan to-blue-600 rounded-xl font-bold flex items-center justify-center p-3 disabled:opacity-60">
+              {duffelSearching ? <Loader2 className="animate-spin mr-2" size={20} /> : <Search className="mr-2" size={20} />}
+              {duffelSearching ? 'Searching...' : 'Execute Search'}
             </button>
           </div>
         </motion.div>
@@ -505,7 +651,26 @@ const FlightSearch = () => {
                     <p className="text-neonCyan text-sm">{selectedFlight.airline} • {selectedFlight.flightNumber}</p>
                   </div>
 
-                  <p className="text-xs text-gray-400 text-center">Choose a trusted partner to complete your booking</p>
+                  <button
+                    onClick={() => {
+                      if (!user) { navigate('/login'); return; }
+                      setCheckoutMode('stripe');
+                      setPassengerEmail(user.email || '');
+                      setCheckoutStep(2);
+                    }}
+                    className="flex items-center gap-4 w-full p-4 rounded-2xl border border-neonCyan/40 bg-neonCyan/10 hover:bg-neonCyan/20 transition-all group"
+                  >
+                    <div className="w-12 h-12 bg-gradient-to-br from-neonCyan to-blue-600 rounded-xl flex items-center justify-center shrink-0">
+                      <CreditCard className="text-white" size={22} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-white font-bold group-hover:text-neonCyan transition-colors">Pay & Book with Stripe</p>
+                      <p className="text-xs text-gray-400">Secure in-app payment + instant e-ticket</p>
+                    </div>
+                    <span className="text-neonCyan font-bold">{formatCurrency(selectedFlight.price)}</span>
+                  </button>
+
+                  <p className="text-xs text-gray-400 text-center">Or book via a trusted partner</p>
 
                   <a href={skyscannerUrl} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-4 w-full p-4 rounded-2xl border border-white/10 hover:border-neonCyan/50 hover:bg-white/5 transition-all group cursor-pointer">
@@ -541,7 +706,7 @@ const FlightSearch = () => {
 
                   <div className="border-t border-white/10 pt-4 mt-4">
                     <p className="text-xs text-gray-500 text-center mb-3">Or generate a demo e-ticket to test the flow</p>
-                    <button onClick={() => setCheckoutStep(2)} className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-500 font-bold text-white shadow-[0_0_15px_rgba(138,43,226,0.3)]">
+                    <button onClick={() => { setCheckoutMode('demo'); setCheckoutStep(2); }} className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-500 font-bold text-white shadow-[0_0_15px_rgba(138,43,226,0.3)]">
                       🎫 Generate Demo E-Ticket
                     </button>
                   </div>
@@ -558,28 +723,36 @@ const FlightSearch = () => {
                 <div className="mt-6 space-y-4">
                   <div className="bg-black/30 p-4 rounded-2xl border border-white/5 space-y-3">
                     <h3 className="text-white font-bold flex items-center gap-2"><User size={16} className="text-neonCyan" /> Passenger Details</h3>
-                    <input type="text" placeholder="Full Name *" value={passengerName} disabled={emailSending} onChange={e => { setPassengerName(e.target.value); setFormError(''); }} className={`w-full bg-white/5 border ${!passengerName && formError ? 'border-red-500' : 'border-white/10'} rounded-xl p-3 text-white placeholder-gray-400 outline-none focus:border-neonCyan transition-colors disabled:opacity-50`} />
-                    <input type="email" placeholder="Email Address *" value={passengerEmail} disabled={emailSending} onChange={e => { setPassengerEmail(e.target.value); setFormError(''); }} className={`w-full bg-white/5 border ${!passengerEmail && formError ? 'border-red-500' : 'border-white/10'} rounded-xl p-3 text-white placeholder-gray-400 outline-none focus:border-neonCyan transition-colors disabled:opacity-50`} />
+                    <input type="text" placeholder="Full Name *" value={passengerName} disabled={emailSending || paymentLoading} onChange={e => { setPassengerName(e.target.value); setFormError(''); }} className={`w-full bg-white/5 border ${!passengerName && formError ? 'border-red-500' : 'border-white/10'} rounded-xl p-3 text-white placeholder-gray-400 outline-none focus:border-neonCyan transition-colors disabled:opacity-50`} />
+                    <input type="email" placeholder="Email Address *" value={passengerEmail} disabled={emailSending || paymentLoading} onChange={e => { setPassengerEmail(e.target.value); setFormError(''); }} className={`w-full bg-white/5 border ${!passengerEmail && formError ? 'border-red-500' : 'border-white/10'} rounded-xl p-3 text-white placeholder-gray-400 outline-none focus:border-neonCyan transition-colors disabled:opacity-50`} />
                   </div>
                   {formError && <p className="text-red-400 text-sm text-center font-medium">{formError}</p>}
                   <div className="flex gap-3">
-                    <button onClick={() => setCheckoutStep(1)} disabled={emailSending} className="flex-1 py-3 rounded-xl border border-white/10 text-white font-bold hover:bg-white/5 transition-colors disabled:opacity-50">Back</button>
-                    <button onClick={handleGenerateDemoTicket} disabled={emailSending} className="flex-grow py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-500 font-bold text-white shadow-[0_0_15px_rgba(138,43,226,0.3)] disabled:opacity-70 flex items-center justify-center gap-2">
-                      {emailSending ? (
-                        <>
-                          <Loader2 className="animate-spin text-white" size={18} />
-                          Sending PDF Ticket...
-                        </>
-                      ) : (
-                        'Generate E-Ticket'
-                      )}
-                    </button>
+                    <button onClick={() => setCheckoutStep(1)} disabled={emailSending || paymentLoading} className="flex-1 py-3 rounded-xl border border-white/10 text-white font-bold hover:bg-white/5 transition-colors disabled:opacity-50">Back</button>
+                    {checkoutMode === 'stripe' ? (
+                      <button onClick={handlePrepareStripeCheckout} disabled={paymentLoading} className="flex-grow py-3 rounded-xl bg-gradient-to-r from-neonCyan to-blue-600 font-bold text-white disabled:opacity-70 flex items-center justify-center gap-2">
+                        {paymentLoading ? <><Loader2 className="animate-spin" size={18} /> Preparing payment...</> : 'Continue to Payment'}
+                      </button>
+                    ) : (
+                      <button onClick={handleGenerateDemoTicket} disabled={emailSending} className="flex-grow py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-500 font-bold text-white disabled:opacity-70 flex items-center justify-center gap-2">
+                        {emailSending ? <><Loader2 className="animate-spin text-white" size={18} /> Sending PDF Ticket...</> : 'Generate E-Ticket'}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* E-Ticket & Receipt */}
-              {checkoutStep === 3 && (() => {
+              {checkoutStep === 3 && checkoutMode === 'stripe' && (
+                <div className="mt-6 space-y-4">
+                  <p className="text-sm text-gray-400 text-center">Complete your secure payment</p>
+                  <StripeCheckout clientSecret={clientSecret} onSuccess={handlePaymentSuccess} onError={(msg) => setFormError(msg)} />
+                  {formError && <p className="text-red-400 text-sm text-center">{formError}</p>}
+                  <button onClick={() => setCheckoutStep(2)} className="w-full py-2 text-sm text-gray-400 hover:text-white">← Back</button>
+                </div>
+              )}
+
+              {(checkoutStep === 3 && checkoutMode === 'demo') || checkoutStep === 4 ? (() => {
+                const isPaidBooking = checkoutStep === 4;
                 const depDateObj = searchDate ? new Date(searchDate) : new Date(Date.now() + 7 * 86400000);
                 const depStr = depDateObj.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
                 const pnr = bookingRef;
@@ -672,8 +845,12 @@ const FlightSearch = () => {
                 <div className="mt-6 space-y-4">
                   <div className="text-center">
                     <CheckCircle className="w-14 h-14 text-green-400 mx-auto mb-3" />
-                    <h3 className="text-2xl font-extrabold text-white mb-1">Demo E-Ticket Sent!</h3>
-                    <p className="text-gray-400 text-sm">We've sent a PDF ticket and receipt to <strong>{passengerEmail}</strong></p>
+                    <h3 className="text-2xl font-extrabold text-white mb-1">{isPaidBooking ? 'Booking Confirmed!' : 'Demo E-Ticket Sent!'}</h3>
+                    <p className="text-gray-400 text-sm">
+                      {emailDeliveryFailed
+                        ? <>Payment received. E-ticket email could not be delivered — save your PNR <strong>{pnr}</strong> below.</>
+                        : <>We've sent a PDF ticket and receipt to <strong>{passengerEmail}</strong></>}
+                    </p>
                   </div>
 
                   {etherealUrl && (
@@ -756,7 +933,7 @@ const FlightSearch = () => {
                   </div>
                 </div>
                 );
-              })()}
+              })() : null}
             </motion.div>
           </div>
         )}

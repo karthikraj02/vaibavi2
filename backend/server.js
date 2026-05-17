@@ -9,6 +9,8 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const http = require('http');
 const { Server } = require('socket.io');
+const { stripeWebhook } = require('./controllers/webhookController');
+const { isProduction } = require('./utils/config');
 
 const authRoutes = require('./routes/authRoutes');
 const aiRoutes = require('./routes/aiRoutes');
@@ -16,22 +18,42 @@ const bookingRoutes = require('./routes/bookingRoutes');
 const refundRoutes = require('./routes/refundRoutes');
 const trackingRoutes = require('./routes/trackingRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
+const duffelRoutes = require('./routes/duffelRoutes');
+const flightRoutes = require('./routes/flightRoutes');
 
 dotenv.config();
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3000')
+  .split(',')
+  .map((o) => o.trim());
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin) || !isProduction) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+  })
+);
+
+// Stripe webhook must use raw body — register before express.json()
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhook);
+
+app.use(express.json({ limit: '2mb' }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
 });
 
-// Make Socket.io accessible in routes/controllers
 app.set('io', io);
 
-// Database Connection
 const connectDatabase = async () => {
   if (process.env.MONGO_URI) {
     console.log('Connecting to MongoDB via MONGO_URI...');
@@ -45,21 +67,24 @@ const connectDatabase = async () => {
     return;
   }
 
-  // Try local MongoDB on 127.0.0.1
+  if (isProduction) {
+    console.error('MONGO_URI is required in production');
+    process.exit(1);
+  }
+
   const localUri = 'mongodb://127.0.0.1:27017/flightagent';
   console.log('Attempting connection to local MongoDB on 127.0.0.1:27017...');
   try {
     await mongoose.connect(localUri, { serverSelectionTimeoutMS: 2000 });
     console.log('MongoDB connected locally');
   } catch (err) {
-    console.log('Local MongoDB not running. Starting automated in-memory MongoDB fallback...');
+    console.log('Local MongoDB not running. Starting in-memory MongoDB fallback (dev only)...');
     try {
       const { MongoMemoryServer } = require('mongodb-memory-server');
       const mongoServer = await MongoMemoryServer.create();
       const mongoUri = mongoServer.getUri();
-      console.log('In-memory MongoDB server started at:', mongoUri);
       await mongoose.connect(mongoUri);
-      console.log('MongoDB connected successfully to in-memory instance');
+      console.log('MongoDB connected to in-memory instance');
     } catch (memErr) {
       console.error('Failed to start in-memory MongoDB:', memErr);
       process.exit(1);
@@ -69,41 +94,48 @@ const connectDatabase = async () => {
 
 connectDatabase();
 
-// Real-time Sockets
 io.on('connection', (socket) => {
-  console.log('New client connected via Socket.io:', socket.id);
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-  });
+  console.log('Socket connected:', socket.id);
+  socket.on('disconnect', () => console.log('Socket disconnected:', socket.id));
 });
 
-// API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/refunds', refundRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/tickets', ticketRoutes);
+app.use('/api/duffel', duffelRoutes);
+app.use('/api/flights', flightRoutes);
 
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'FlightAgent Enterprise API is running successfully.' });
+  res.status(200).json({
+    status: 'ok',
+    message: 'FlightAgent Enterprise API is running.',
+    duffel: Boolean(process.env.DUFFEL_ACCESS_TOKEN),
+    stripe: Boolean(process.env.STRIPE_SECRET_KEY),
+    environment: process.env.NODE_ENV || 'development',
+  });
 });
 
 app.get('/', (req, res) => {
   res.status(200).json({
-    status: 'FlightAgent Enterprise API is online and running successfully.',
-    version: '1.0.0',
-    documentation: 'See the React frontend application to interact with FlightAgent.',
+    status: 'FlightAgent Enterprise API is online.',
+    version: '2.0.0',
     endpoints: {
       health: '/api/health',
       auth: '/api/auth',
-      ai: '/api/ai',
       bookings: '/api/bookings',
-      refunds: '/api/refunds',
-      tracking: '/api/tracking',
-      tickets: '/api/tickets'
-    }
+      duffel: '/api/duffel',
+      tickets: '/api/tickets',
+      webhooks: '/api/webhooks/stripe',
+    },
   });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ message: err.message || 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 5000;

@@ -2,16 +2,25 @@ const User = require('../models/User');
 const Otp = require('../models/Otp');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
+const { getJwtSecret, isProduction } = require('../utils/config');
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET || 'secret123', {
-    expiresIn: '30d',
-  });
+const generateToken = (id, role = 'user') => {
+  return jwt.sign({ id, role }, getJwtSecret(), { expiresIn: '30d' });
 };
 
-// @desc    Send OTP to email for registration
-// @route   POST /api/auth/send-otp
-// @access  Public
+const PASSWORD_MIN_LENGTH = 8;
+
+const validatePassword = (password) => {
+  if (!password || password.length < PASSWORD_MIN_LENGTH) {
+    return `Password must be at least ${PASSWORD_MIN_LENGTH} characters`;
+  }
+  if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+    return 'Password must contain at least one letter and one number';
+  }
+  return null;
+};
+
 const sendOtp = async (req, res) => {
   const { email } = req.body;
   try {
@@ -24,25 +33,21 @@ const sendOtp = async (req, res) => {
       return res.status(400).json({ message: 'User already exists' });
     }
 
-    // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Delete existing OTPs for this email and save new one
     await Otp.deleteMany({ email });
     await Otp.create({ email, otp });
 
-    // Try sending email
     let emailSent = false;
-    let isDefaultCredentials = (process.env.EMAIL_USER === 'your_email@gmail.com' || !process.env.EMAIL_USER);
+    const hasEmailCreds = process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD;
 
-    if (!isDefaultCredentials) {
+    if (hasEmailCreds) {
       try {
         const transporter = nodemailer.createTransport({
           service: 'gmail',
           auth: {
             user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_APP_PASSWORD
-          }
+            pass: process.env.EMAIL_APP_PASSWORD,
+          },
         });
 
         await transporter.sendMail({
@@ -50,18 +55,15 @@ const sendOtp = async (req, res) => {
           to: email,
           subject: 'Your Registration Verification Code',
           html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-              <h2 style="color: #4285F4; text-align: center;">FlightAgent Verification</h2>
-              <p>Hello,</p>
-              <p>Thank you for registering an account on FlightAgent! To complete your registration, please verify your email using the following 6-digit OTP code:</p>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px;">
+              <h2 style="color: #4285F4;">FlightAgent Verification</h2>
+              <p>Your verification code:</p>
               <div style="text-align: center; margin: 30px 0;">
-                <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1a73e8; background-color: #f1f3f4; padding: 10px 20px; border-radius: 6px; border: 1px dashed #1a73e8;">${otp}</span>
+                <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1a73e8;">${otp}</span>
               </div>
-              <p style="color: #666; font-size: 14px;">This code is valid for 10 minutes. Please do not share this OTP with anyone.</p>
-              <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-              <p style="color: #999; font-size: 12px; text-align: center;">FlightAgent Inc. &copy; 2026</p>
+              <p style="color: #666; font-size: 14px;">Valid for 10 minutes.</p>
             </div>
-          `
+          `,
         });
         emailSent = true;
       } catch (err) {
@@ -69,34 +71,27 @@ const sendOtp = async (req, res) => {
       }
     }
 
-    // Print generated OTP to backend console so it's easy to read in terminal
-    console.log(`\n========================================`);
-    console.log(`🔑 REGISTRATION OTP FOR ${email}: ${otp}`);
-    if (isDefaultCredentials) {
-      console.log(`⚠️ Using default placeholder email credentials.`);
-    } else if (!emailSent) {
-      console.log(`❌ Failed to send email via SMTP, logged OTP for convenience.`);
-    } else {
-      console.log(`✅ Email sent successfully!`);
+    if (!isProduction) {
+      console.log(`OTP for ${email}: ${otp}`);
     }
-    console.log(`========================================\n`);
 
     res.status(200).json({
-      message: 'Verification OTP sent to email!',
-      // Return the OTP in the JSON response ONLY in default config to make testing extremely seamless
-      otp: isDefaultCredentials ? otp : undefined
+      message: emailSent ? 'Verification OTP sent to email' : 'OTP generated (check server logs in dev)',
+      ...(isProduction ? {} : { devOtp: !emailSent ? otp : undefined }),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Register a new user
-// @route   POST /api/auth/register
-// @access  Public
 const registerUser = async (req, res) => {
   const { name, email, password, otp } = req.body;
   try {
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return res.status(400).json({ message: passwordError });
+    }
+
     const userExists = await User.findOne({ email });
     if (userExists) return res.status(400).json({ message: 'User already exists' });
 
@@ -104,106 +99,108 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ message: 'OTP is required for verification' });
     }
 
-    // Verify OTP
     const otpDoc = await Otp.findOne({ email }).sort({ createdAt: -1 });
-    if (!otpDoc) {
-      return res.status(400).json({ message: 'OTP has expired or is invalid' });
+    if (!otpDoc || otpDoc.otp !== otp) {
+      return res.status(400).json({ message: 'Invalid or expired OTP' });
     }
 
-    if (otpDoc.otp !== otp) {
-      return res.status(400).json({ message: 'Invalid OTP code' });
-    }
-
-    // Successful match, delete OTP document
     await Otp.deleteMany({ email });
 
     const user = await User.create({ name, email, password, isVerified: true });
-    if (user) {
-      res.status(201).json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        token: generateToken(user._id),
-      });
-    } else {
-      res.status(400).json({ message: 'Invalid user data' });
-    }
+    res.status(201).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      token: generateToken(user._id, user.role),
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Auth user & get token
-// @route   POST /api/auth/login
-// @access  Public
 const loginUser = async (req, res) => {
   const { email, password } = req.body;
   try {
-    // Check if it's the root admin logging in with their special credentials
     if (email === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
       return res.json({
         _id: 'admin-root-id',
         name: 'Administrator',
-        email: 'admin',
+        email: process.env.ADMIN_USERNAME,
         role: 'admin',
-        token: jwt.sign({ id: 'admin-root-id', role: 'admin' }, process.env.JWT_SECRET || 'secret123', { expiresIn: '30d' }),
+        token: generateToken('admin-root-id', 'admin'),
       });
     }
 
     const user = await User.findOne({ email });
     if (user && (await user.matchPassword(password))) {
-      res.json({
+      return res.json({
         _id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
-        token: generateToken(user._id),
+        token: generateToken(user._id, user.role),
       });
-    } else {
-      res.status(401).json({ message: 'Invalid email or password' });
     }
+    res.status(401).json({ message: 'Invalid email or password' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Get user profile
-// @route   GET /api/auth/profile
-// @access  Private
 const getUserProfile = async (req, res) => {
+  if (req.user._id === 'admin-root-id') {
+    return res.json({
+      _id: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+      role: 'admin',
+    });
+  }
+
   const user = await User.findById(req.user._id);
   if (user) {
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    });
+    res.json({ _id: user._id, name: user.name, email: user.email, role: user.role });
   } else {
     res.status(404).json({ message: 'User not found' });
   }
 };
 
-// @desc    Auth user via Google OAuth
-// @route   POST /api/auth/google
-// @access  Public
 const googleLogin = async (req, res) => {
-  const { name, email } = req.body;
+  const { credential, name, email } = req.body;
+
   try {
-    if (!email || !name) {
-      return res.status(400).json({ message: 'Missing name or email from Google' });
+    let verifiedEmail = email;
+    let verifiedName = name;
+
+    if (credential) {
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      if (!clientId) {
+        return res.status(503).json({ message: 'Google OAuth is not configured (GOOGLE_CLIENT_ID)' });
+      }
+
+      const client = new OAuth2Client(clientId);
+      const ticket = await client.verifyIdToken({
+        idToken: credential,
+        audience: clientId,
+      });
+      const payload = ticket.getPayload();
+      verifiedEmail = payload.email;
+      verifiedName = payload.name || name;
+    } else if (!email || !name) {
+      return res.status(400).json({ message: 'Google credential or name/email required' });
+    } else if (isProduction) {
+      return res.status(400).json({ message: 'Google ID token required in production' });
     }
 
-    let user = await User.findOne({ email });
+    let user = await User.findOne({ email: verifiedEmail });
     if (!user) {
-      // Create user with a secure random password since it is required
-      const randomPassword = 'google-oauth-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+      const randomPassword = cryptoRandomPassword();
       user = await User.create({
-        name,
-        email,
+        name: verifiedName,
+        email: verifiedEmail,
         password: randomPassword,
-        isVerified: true
+        isVerified: true,
       });
     }
 
@@ -212,11 +209,15 @@ const googleLogin = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      token: generateToken(user._id),
+      token: generateToken(user._id, user.role),
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Google auth error:', error);
+    res.status(401).json({ message: 'Google authentication failed' });
   }
 };
+
+const cryptoRandomPassword = () =>
+  'oauth-' + require('crypto').randomBytes(24).toString('hex');
 
 module.exports = { registerUser, loginUser, getUserProfile, googleLogin, sendOtp };

@@ -9,65 +9,14 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('active'); // 'active', 'history', 'refunds'
 
-  const mockHistory = [
-    {
-      _id: 'mock-hist-1',
-      flight: {
-        flightNumber: 'AI-101',
-        departureDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), // 15 days ago
-        from: 'DEL',
-        to: 'BOM',
-        duration: '2h 10m',
-        airline: 'Air India',
-        price: 150
-      },
-      paymentIntentId: 'pi_hist1_mock',
-      passengers: [{ firstName: user?.name?.split(' ')[0] || 'Passenger', lastName: user?.name?.split(' ')[1] || 'One', seatNumber: '12A' }],
-      totalAmount: 150,
-      bookingStatus: 'Completed'
-    },
-    {
-      _id: 'mock-hist-2',
-      flight: {
-        flightNumber: 'BA-112',
-        departureDate: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(), // 45 days ago
-        from: 'LHR',
-        to: 'JFK',
-        duration: '7h 45m',
-        airline: 'British Airways',
-        price: 650
-      },
-      paymentIntentId: 'pi_hist2_mock',
-      passengers: [{ firstName: user?.name?.split(' ')[0] || 'Passenger', lastName: user?.name?.split(' ')[1] || 'One', seatNumber: '18D' }],
-      totalAmount: 650,
-      bookingStatus: 'Completed'
-    },
-    {
-      _id: 'mock-hist-3',
-      flight: {
-        flightNumber: 'DL-404',
-        departureDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days ago
-        from: 'HND',
-        to: 'SEA',
-        duration: '9h 15m',
-        airline: 'Delta Air Lines',
-        price: 890
-      },
-      paymentIntentId: 'pi_hist3_mock',
-      passengers: [{ firstName: user?.name?.split(' ')[0] || 'Passenger', lastName: user?.name?.split(' ')[1] || 'One', seatNumber: '08C' }],
-      totalAmount: 890,
-      bookingStatus: 'Completed'
-    }
-  ];
-
   const getFilteredBookings = () => {
     if (filter === 'active') {
-      return bookings;
-    } else if (filter === 'history') {
-      return mockHistory;
-    } else {
-      return [];
+      return bookings.filter((b) => ['pending', 'payment_processing', 'confirmed'].includes(b.status));
     }
+    if (filter === 'history') {
+      return bookings.filter((b) => ['completed', 'cancelled', 'refunded'].includes(b.status));
+    }
+    return [];
   };
 
   const displayBookings = getFilteredBookings();
