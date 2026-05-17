@@ -308,6 +308,13 @@ const LiveTracking = () => {
       easeLinearity: 0.25
     });
 
+    // Safety size invalidation to solve React mounting width/height painted delay gotcha
+    setTimeout(() => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    }, 150);
+
   }, [activeFlight]);
 
   return (
