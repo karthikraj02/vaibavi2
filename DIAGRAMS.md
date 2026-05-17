@@ -1,12 +1,18 @@
 # 📊 FlightAgent: Control Flow, Data Flow, and Entity-Relationship Diagrams
 
-This document contains high-fidelity visual diagrams explaining the execution logic, data lifecycle, and database schemas of the **FlightAgent** system.
+This document contains high-fidelity visual diagrams explaining the execution logic, data lifecycle, and database schemas of the **FlightAgent** system. It provides both **proper graphical diagrams** and their editable **Mermaid source code**.
 
 ---
 
 ## 🔁 1. Control Flow Diagram (CFD)
 
 The Control Flow Diagram traces the step-by-step logic path when a passenger searches for a flight, locks a seat, triggers Stripe checkout, and receives a cryptographic ticket.
+
+### 🖼️ Visual Diagram
+![Control Flow Diagram](./control_flow_diagram.png)
+
+<details>
+<summary>💻 Editable Mermaid Source Code (Click to Expand)</summary>
 
 ```mermaid
 flowchart TD
@@ -42,12 +48,19 @@ flowchart TD
     TicketCreate --> Mailer[Trigger Nodemailer to dispatch confirmation email]
     Mailer --> End([User views and downloads PDF ticket in MyTickets])
 ```
+</details>
 
 ---
 
 ## 🔀 2. Data Flow Diagram (DFD - Level 1)
 
 This DFD outlines the inputs, outputs, processes, and database stores of the system, tracking how user credentials, checkout events, flight updates, and Gemini inputs are processed.
+
+### 🖼️ Visual Diagram
+![Data Flow Diagram](./data_flow_diagram.png)
+
+<details>
+<summary>💻 Editable Mermaid Source Code (Click to Expand)</summary>
 
 ```mermaid
 graph TD
@@ -108,12 +121,19 @@ graph TD
     P7 <--> |Round-robin Gemini rotating request| Gemini
     P7 --> |Concise schedule answer| User
 ```
+</details>
 
 ---
 
 ## 🗄️ 3. Entity Relationship Diagram (ERD)
 
 This physical database model outlines the relational design of your MongoDB Mongoose collections, detailing keys, reference fields, and logical cardinality.
+
+### 🖼️ Visual Diagram
+![Entity Relationship Diagram](./er_diagram.png)
+
+<details>
+<summary>💻 Editable Mermaid Source Code (Click to Expand)</summary>
 
 ```mermaid
 erDiagram
@@ -196,12 +216,11 @@ erDiagram
         array refundScale "Time-based refund brackets"
     }
 ```
+</details>
 
 ---
 
 ## 💡 How to Read these Diagrams in Your Code Editor
 
-1. **Mermaid Previewers**: Many modern markdown viewers (such as VS Code Markdown Preview, GitHub, GitLab, or Obsidian) render these diagrams interactively.
-2. **Interactive Flow**:
-   * Refer to `backend/controllers/webhookController.js` and `backend/services/ticketService.js` to see the logic mapped in the **Control Flow Diagram**.
-   * Refer to `backend/models/` to inspect the exact schema definitions sketched in the **Entity Relationship Diagram**.
+1. **Static Visuals**: Simply open `DIAGRAMS.md` in any Markdown previewer (like VS Code, GitHub, or Obsidian) to see the high-quality embedded image diagrams.
+2. **Editable Sources**: Expand the collapsible code blocks to access the raw Mermaid text, which can be modified directly to update the diagrams.
