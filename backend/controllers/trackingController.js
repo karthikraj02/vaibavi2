@@ -1,16 +1,47 @@
-const Flight = require('../models/Flight');
 const https = require('https');
+const Flight = require('../models/Flight');
 
 let cache = {
   data: null,
   timestamp: 0
 };
 
+// Promise-based HTTPS getter for REST APIs
+const fetchJson = (url) => {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { 
+      headers: { 'User-Agent': 'FlightAgent/1.0' },
+      timeout: 3000
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        try {
+          if (res.statusCode !== 200) {
+            return reject(new Error(`ADSB.lol returned status ${res.statusCode}`));
+          }
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+
+    req.on('error', (err) => reject(err));
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('ADSB.lol request timed out'));
+    });
+  });
+};
+
 // @desc    Get Real-time, Real-world Global Flight State Vectors
 // @route   GET /api/tracking/live-states
 // @access  Public
 const getLiveFlightStates = async (req, res) => {
-  const CACHE_DURATION = 15000; // 15 seconds cache to satisfy OpenSky API limits
+  const CACHE_DURATION = 15000; // 15 seconds cache to prevent flooding community feeds
   const now = Date.now();
 
   if (cache.data && (now - cache.timestamp < CACHE_DURATION)) {
@@ -79,100 +110,84 @@ const getLiveFlightStates = async (req, res) => {
     });
   };
 
-  const requestOptions = {
-    hostname: 'opensky-network.org',
-    path: '/api/states/all',
-    method: 'GET',
-    headers: { 'User-Agent': 'FlightAgent/1.0' },
-    timeout: 3500
-  };
+  try {
+    // Query 3 high-density international aviation corridors for best global coverage
+    const hubs = [
+      { lat: 28.5562, lon: 77.1000, dist: 350 }, // Indian Subcontinent Hub (Delhi)
+      { lat: 51.4700, lon: -0.4543, dist: 300 }, // Western Europe Hub (London)
+      { lat: 40.6413, lon: -73.7781, dist: 300 }  // North America Hub (New York)
+    ];
 
-  const reqGet = https.request(requestOptions, (response) => {
-    let dataBuffer = '';
+    const promises = hubs.map(h => 
+      fetchJson(`https://api.adsb.lol/v2/lat/${h.lat}/lon/${h.lon}/dist/${h.dist}`)
+    );
 
-    response.on('data', (chunk) => {
-      dataBuffer += chunk;
-    });
+    const results = await Promise.all(promises);
+    const processedFlights = [];
 
-    response.on('end', () => {
-      try {
-        if (response.statusCode !== 200) {
-          throw new Error(`OpenSky returned status code ${response.statusCode}`);
-        }
+    for (const hubData of results) {
+      if (hubData && hubData.ac && Array.isArray(hubData.ac)) {
+        for (const ac of hubData.ac) {
+          const callsign = ac.flight ? ac.flight.trim() : '';
+          const lat = ac.lat;
+          const lon = ac.lon;
+          const speedKnots = ac.gs;
+          const altFt = ac.alt_baro;
+          const heading = ac.track;
+          const hex = ac.hex;
 
-        const parsed = JSON.parse(dataBuffer);
-        if (!parsed.states || !Array.isArray(parsed.states)) {
-          throw new Error('Invalid response structure from OpenSky');
-        }
-
-        const processedFlights = [];
-        for (const state of parsed.states) {
-          const callsign = state[1] ? state[1].trim() : '';
-          const lat = state[6];
-          const lon = state[5];
-          const onGround = state[8];
-          const velocity = state[9]; // m/s
-          const geoAlt = state[13] || state[7] || 0; // meters
-          const heading = state[10] || 0; // degrees
-          const country = state[2] || '';
-
-          if (!callsign || lat === null || lon === null || onGround) continue;
+          if (!callsign || lat === null || lon === null || !speedKnots) continue;
 
           const prefix = callsign.substring(0, 3).toUpperCase();
           if (airlineMap[prefix]) {
             const route = getRandomRoute(prefix);
             processedFlights.push({
-              id: `real-${state[0]}-${callsign}`,
+              id: `real-${hex || Math.random().toString(36).substr(2, 6)}-${callsign}`,
               number: callsign,
               airline: airlineMap[prefix],
               from: route.from,
               to: route.to,
               latitude: lat,
               longitude: lon,
-              speed: Math.round(velocity * 3.6), // convert m/s to km/h
-              altitude: Math.round(geoAlt * 3.28084), // convert meters to feet
-              heading: Math.round(heading),
-              country: country,
+              speed: Math.round(speedKnots * 1.852), // Convert knots to km/h
+              altitude: typeof altFt === 'number' ? altFt : 32000,
+              heading: heading ? Math.round(heading) : 0,
+              country: 'ADSB.lol Community',
               isRealData: true
             });
           }
-
-          if (processedFlights.length >= 100) break;
         }
-
-        if (processedFlights.length === 0) {
-          const fallbacks = getFallbackFlights();
-          cache.data = fallbacks;
-          cache.timestamp = now;
-          return res.json({ success: true, flights: fallbacks, source: 'opensky-empty-fallback' });
-        }
-
-        cache.data = processedFlights;
-        cache.timestamp = now;
-        res.json({ success: true, flights: processedFlights, source: 'opensky-network' });
-
-      } catch (err) {
-        console.error('Error parsing OpenSky data:', err.message);
-        const fallbacks = getFallbackFlights();
-        res.json({ success: true, flights: fallbacks, source: 'opensky-parse-fallback' });
       }
-    });
-  });
+    }
 
-  reqGet.on('error', (err) => {
-    console.error('OpenSky network request failed:', err.message);
+    // Deduplicate array by flight callsign to prevent duplicates on intersecting circles
+    const seen = new Set();
+    const uniqueFlights = [];
+    for (const flight of processedFlights) {
+      if (!seen.has(flight.number)) {
+        seen.add(flight.number);
+        uniqueFlights.push(flight);
+      }
+    }
+
+    if (uniqueFlights.length === 0) {
+      console.log('No matching airline callsigns found, using fallbacks...');
+      const fallbacks = getFallbackFlights();
+      cache.data = fallbacks;
+      cache.timestamp = now;
+      return res.json({ success: true, flights: fallbacks, source: 'adsb-empty-fallback' });
+    }
+
+    cache.data = uniqueFlights;
+    cache.timestamp = now;
+    console.log(`Successfully parsed ${uniqueFlights.length} high-accuracy flights from ADSB.lol!`);
+    res.json({ success: true, flights: uniqueFlights, source: 'adsb-lol' });
+
+  } catch (error) {
+    console.error('ADSB.lol query error, loading fallback states:', error.message);
     const fallbacks = getFallbackFlights();
-    res.json({ success: true, flights: fallbacks, source: 'opensky-network-fallback' });
-  });
-
-  reqGet.on('timeout', () => {
-    reqGet.destroy();
-    console.warn('OpenSky API timed out. Serving offline fallback states.');
-    const fallbacks = getFallbackFlights();
-    res.json({ success: true, flights: fallbacks, source: 'opensky-timeout-fallback' });
-  });
-
-  reqGet.end();
+    res.json({ success: true, flights: fallbacks, source: 'adsb-error-fallback' });
+  }
 };
 
 // @desc    Update Flight Status & Emit via Socket
@@ -187,7 +202,6 @@ const updateFlightStatus = async (req, res) => {
     flight.status = status;
     await flight.save();
     
-    // Emit real-time update to all connected clients
     const io = req.app.get('io');
     if (io) {
       io.emit('flight_update', { flightId, status, airline: flight.airline, flightNumber: flight.flightNumber });
