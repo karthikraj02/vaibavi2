@@ -140,6 +140,17 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
   const { email, password } = req.body;
   try {
+    // Check if it's the root admin logging in with their special credentials
+    if (email === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
+      return res.json({
+        _id: 'admin-root-id',
+        name: 'Administrator',
+        email: 'admin',
+        role: 'admin',
+        token: jwt.sign({ id: 'admin-root-id', role: 'admin' }, process.env.JWT_SECRET || 'secret123', { expiresIn: '30d' }),
+      });
+    }
+
     const user = await User.findOne({ email });
     if (user && (await user.matchPassword(password))) {
       res.json({
