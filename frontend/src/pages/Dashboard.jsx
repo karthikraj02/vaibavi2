@@ -7,6 +7,70 @@ const Dashboard = () => {
   const { user } = useContext(AuthContext);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('active'); // 'active', 'history', 'refunds'
+
+  const mockHistory = [
+    {
+      _id: 'mock-hist-1',
+      flight: {
+        flightNumber: 'AI-101',
+        departureDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), // 15 days ago
+        from: 'DEL',
+        to: 'BOM',
+        duration: '2h 10m',
+        airline: 'Air India',
+        price: 150
+      },
+      paymentIntentId: 'pi_hist1_mock',
+      passengers: [{ firstName: user?.name?.split(' ')[0] || 'Passenger', lastName: user?.name?.split(' ')[1] || 'One', seatNumber: '12A' }],
+      totalAmount: 150,
+      bookingStatus: 'Completed'
+    },
+    {
+      _id: 'mock-hist-2',
+      flight: {
+        flightNumber: 'BA-112',
+        departureDate: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(), // 45 days ago
+        from: 'LHR',
+        to: 'JFK',
+        duration: '7h 45m',
+        airline: 'British Airways',
+        price: 650
+      },
+      paymentIntentId: 'pi_hist2_mock',
+      passengers: [{ firstName: user?.name?.split(' ')[0] || 'Passenger', lastName: user?.name?.split(' ')[1] || 'One', seatNumber: '18D' }],
+      totalAmount: 650,
+      bookingStatus: 'Completed'
+    },
+    {
+      _id: 'mock-hist-3',
+      flight: {
+        flightNumber: 'DL-404',
+        departureDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days ago
+        from: 'HND',
+        to: 'SEA',
+        duration: '9h 15m',
+        airline: 'Delta Air Lines',
+        price: 890
+      },
+      paymentIntentId: 'pi_hist3_mock',
+      passengers: [{ firstName: user?.name?.split(' ')[0] || 'Passenger', lastName: user?.name?.split(' ')[1] || 'One', seatNumber: '08C' }],
+      totalAmount: 890,
+      bookingStatus: 'Completed'
+    }
+  ];
+
+  const getFilteredBookings = () => {
+    if (filter === 'active') {
+      return bookings;
+    } else if (filter === 'history') {
+      return mockHistory;
+    } else {
+      return [];
+    }
+  };
+
+  const displayBookings = getFilteredBookings();
 
   useEffect(() => {
     const fetchBookings = async () => {
@@ -67,7 +131,14 @@ const Dashboard = () => {
 
         {/* Stats Metrics Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          <div className="glass-panel p-6 rounded-2xl border border-white/10 flex items-center space-x-5 hover:border-neonCyan/30 hover:shadow-[0_0_20px_rgba(0,240,255,0.1)] transition-all duration-300 transform hover:scale-[1.02]">
+          <div 
+            onClick={() => setFilter('active')}
+            className={`glass-panel p-6 rounded-2xl border cursor-pointer flex items-center space-x-5 transition-all duration-300 transform hover:scale-[1.02] ${
+              filter === 'active' 
+                ? 'border-neonCyan bg-neonCyan/5 shadow-[0_0_20px_rgba(0,240,255,0.15)]' 
+                : 'border-white/10 hover:border-neonCyan/30 hover:shadow-[0_0_20px_rgba(0,240,255,0.05)]'
+            }`}
+          >
             <div className="bg-neonCyan/10 p-4 rounded-xl text-neonCyan shadow-[0_0_15px_rgba(0,240,255,0.15)]">
               <Ticket size={28} />
             </div>
@@ -77,7 +148,14 @@ const Dashboard = () => {
             </div>
           </div>
           
-          <div className="glass-panel p-6 rounded-2xl border border-white/10 flex items-center space-x-5 hover:border-neonPurple/30 hover:shadow-[0_0_20px_rgba(138,43,226,0.1)] transition-all duration-300 transform hover:scale-[1.02]">
+          <div 
+            onClick={() => setFilter('history')}
+            className={`glass-panel p-6 rounded-2xl border cursor-pointer flex items-center space-x-5 transition-all duration-300 transform hover:scale-[1.02] ${
+              filter === 'history' 
+                ? 'border-neonPurple bg-neonPurple/5 shadow-[0_0_20px_rgba(138,43,226,0.15)]' 
+                : 'border-white/10 hover:border-neonPurple/30 hover:shadow-[0_0_20px_rgba(138,43,226,0.05)]'
+            }`}
+          >
             <div className="bg-neonPurple/10 p-4 rounded-xl text-neonPurple shadow-[0_0_15px_rgba(138,43,226,0.15)]">
               <Plane size={28} />
             </div>
@@ -87,7 +165,14 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className="glass-panel p-6 rounded-2xl border border-white/10 flex items-center space-x-5 hover:border-pink-500/30 hover:shadow-[0_0_20px_rgba(236,72,153,0.1)] transition-all duration-300 transform hover:scale-[1.02]">
+          <div 
+            onClick={() => setFilter('refunds')}
+            className={`glass-panel p-6 rounded-2xl border cursor-pointer flex items-center space-x-5 transition-all duration-300 transform hover:scale-[1.02] ${
+              filter === 'refunds' 
+                ? 'border-pink-500 bg-pink-500/5 shadow-[0_0_20px_rgba(236,72,153,0.15)]' 
+                : 'border-white/10 hover:border-pink-500/30 hover:shadow-[0_0_20px_rgba(236,72,153,0.05)]'
+            }`}
+          >
             <div className="bg-pink-500/10 p-4 rounded-xl text-pink-500 shadow-[0_0_15px_rgba(236,72,153,0.15)]">
               <CreditCard size={28} />
             </div>
@@ -102,7 +187,21 @@ const Dashboard = () => {
         <div className="glass-panel rounded-3xl border border-white/10 overflow-hidden shadow-2xl">
           <div className="p-6 border-b border-white/10 bg-white/2 flex items-center justify-between">
             <h2 className="text-xl font-bold flex items-center gap-2">
-              <Plane className="text-neonCyan rotate-45" size={20} /> Live Trajectories & Bookings
+              {filter === 'active' && (
+                <>
+                  <Plane className="text-neonCyan rotate-45" size={20} /> Live Trajectories & Bookings
+                </>
+              )}
+              {filter === 'history' && (
+                <>
+                  <Clock className="text-neonPurple" size={20} /> Historical Transits & Journeys
+                </>
+              )}
+              {filter === 'refunds' && (
+                <>
+                  <CreditCard className="text-pink-500" size={20} /> Neural Refunds & Credits
+                </>
+              )}
             </h2>
             <Link to="/search" className="text-xs font-semibold text-neonCyan hover:underline">
               Book New Transit →
@@ -114,30 +213,41 @@ const Dashboard = () => {
               <div className="w-12 h-12 rounded-full border-4 border-t-neonCyan border-r-transparent border-b-neonPurple border-l-transparent animate-spin"></div>
               <p className="text-sm text-gray-400 tracking-wider">Decrypting booking databases...</p>
             </div>
-          ) : bookings.length === 0 ? (
+          ) : displayBookings.length === 0 ? (
             <div className="p-16 text-center space-y-6">
               <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mx-auto text-gray-400 shadow-inner">
                 <AlertCircle size={28} />
               </div>
               <div className="max-w-md mx-auto space-y-2">
-                <p className="text-lg font-bold text-white">No Transits Registered</p>
-                <p className="text-sm text-gray-400 leading-relaxed font-light">
-                  Your neural itinerary is currently vacant. Unlock optimal itineraries, automated smart-checkin, and direct booking receipt dispatching now.
+                <p className="text-lg font-bold text-white">
+                  {filter === 'refunds' ? 'No Refund Claims Processed' : 'No Transits Registered'}
+                </p>
+                <p className="text-sm text-gray-400 leading-relaxed font-light font-sans">
+                  {filter === 'refunds' 
+                    ? 'All of your neural refund claims are fully settled. No pending payouts are currently on transition.' 
+                    : 'Your neural itinerary is currently vacant. Unlock optimal itineraries, automated smart-checkin, and direct booking receipt dispatching now.'
+                  }
                 </p>
               </div>
-              <Link to="/search" className="neon-button inline-flex bg-gradient-to-r from-neonCyan to-blue-600 px-6 py-3 rounded-full font-bold text-sm tracking-wide shadow-md active:scale-95 transition-all">
-                Initialize Search
-              </Link>
+              {filter !== 'refunds' && (
+                <Link to="/search" className="neon-button inline-flex bg-gradient-to-r from-neonCyan to-blue-600 px-6 py-3 rounded-full font-bold text-sm tracking-wide shadow-md active:scale-95 transition-all">
+                  Initialize Search
+                </Link>
+              )}
             </div>
           ) : (
-            <div className="divide-y divide-white/5">
-              {bookings.map((booking) => (
+            <div className="divide-y divide-white/5 animate-fadeIn">
+              {displayBookings.map((booking) => (
                 <div key={booking._id} className="p-6 hover:bg-white/2 transition-colors flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
                   
                   {/* Left Block: Flight Details & PNR */}
                   <div className="flex-grow space-y-4">
                     <div className="flex flex-wrap items-center gap-3">
-                      <span className="bg-neonCyan/10 text-neonCyan px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border border-neonCyan/20">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
+                        booking.bookingStatus === 'Completed'
+                          ? 'bg-neonPurple/10 text-neonPurple border-neonPurple/20'
+                          : 'bg-neonCyan/10 text-neonCyan border-neonCyan/20'
+                      }`}>
                         {booking.flight?.flightNumber || 'FL-902'}
                       </span>
                       <span className="text-xs text-gray-400 flex items-center gap-1 font-medium">
@@ -186,8 +296,20 @@ const Dashboard = () => {
 
                   {/* Right Block: Actions */}
                   <div className="flex lg:flex-col gap-3 min-w-[180px]">
-                    <span className="inline-flex items-center justify-center gap-1 bg-green-500/10 text-green-400 border border-green-500/20 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span> Confirmed
+                    <span className={`inline-flex items-center justify-center gap-1 ${
+                      booking.bookingStatus === 'Completed'
+                        ? 'bg-neonPurple/10 text-neonPurple border border-neonPurple/20'
+                        : 'bg-green-500/10 text-green-400 border border-green-500/20'
+                    } px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider`}>
+                      {booking.bookingStatus === 'Completed' ? (
+                        <>
+                          <span className="w-1.5 h-1.5 rounded-full bg-neonPurple"></span> Completed
+                        </>
+                      ) : (
+                        <>
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span> Confirmed
+                        </>
+                      )}
                     </span>
                     <Link 
                       to={`/tickets?booking_id=${booking._id}`}
