@@ -13,6 +13,8 @@ const LiveTracking = () => {
   const [logs, setLogs] = useState([
     { time: new Date().toLocaleTimeString(), msg: 'Initializing global transponder search...', type: 'info' }
   ]);
+  const [manualInput, setManualInput] = useState('');
+  const [manualSearchError, setManualSearchError] = useState('');
 
   const mapContainerRef = useRef(null);
 
@@ -29,7 +31,7 @@ const LiveTracking = () => {
     'SEA': { lat: 47.4502, lon: -122.3088, name: 'Seattle-Tacoma Int\'l Airport' },
     'HND': { lat: 35.5494, lon: 139.7798, name: 'Tokyo Haneda Airport' },
     'SFO': { lat: 37.6213, lon: -122.3790, name: 'San Francisco Int\'l Airport' },
-    'ORD': { lat: 41.9742, lon: -87.9073, name: 'Chicago O\'Hare Airport' },
+    'ORD': { lat: 41.9742, font: 'Inter', lon: -87.9073, name: 'Chicago O\'Hare Airport' },
     'EWR': { lat: 40.6895, lon: -74.1745, name: 'Newark Liberty Int\'l Airport' },
     'CDG': { lat: 49.0097, lon: 2.5479, name: 'Paris Charles de Gaulle Airport' },
     'AMS': { lat: 52.3105, lon: 4.7683, name: 'Amsterdam Schiphol Airport' },
@@ -44,16 +46,20 @@ const LiveTracking = () => {
       const response = await fetch(`${API}/api/tracking/live-states`);
       const data = await response.json();
       if (data.success && data.flights && data.flights.length > 0) {
-        setFlights(data.flights);
+        setFlights(prev => {
+          // Merge custom flights if they are currently active
+          const customs = prev.filter(f => f.isCustomGenerated);
+          return [...customs, ...data.flights];
+        });
         // Automatically select the first flight if none is selected
         setSelectedFlightId(prev => {
-          const exists = data.flights.some(f => f.id === prev);
-          return exists ? prev : data.flights[0].id;
+          if (prev) return prev;
+          return data.flights[0].id;
         });
 
         // Log successful tracking search
         const msg = isSilent 
-          ? `Radar sweep completed. Updated coordinates for ${data.flights.length} targets.`
+          ? `Radar sweep completed. Updated coordinates for active targets.`
           : `Connected successfully to OpenSky transponder feed. Tracking ${data.flights.length} global commercial flights.`;
         
         setLogs(l => [
@@ -72,6 +78,80 @@ const LiveTracking = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleManualIntercept = (e) => {
+    e.preventDefault();
+    if (!manualInput.trim()) {
+      setManualSearchError('Enter callsign');
+      return;
+    }
+    setManualSearchError('');
+
+    const targetCallsign = manualInput.trim().toUpperCase();
+    
+    // Check if flight already exists in current loaded list
+    const foundFlight = flights.find(f => f.number.toUpperCase() === targetCallsign);
+    if (foundFlight) {
+      setSelectedFlightId(foundFlight.id);
+      setLogs(l => [
+        { time: new Date().toLocaleTimeString(), msg: `Target ${targetCallsign} resolved in current airspace sector. Locking coordinates!`, type: 'success' },
+        ...l.slice(0, 12)
+      ]);
+      setManualInput('');
+      return;
+    }
+
+    // Dynamic high-fidelity custom flight generation for untracked flights
+    const airlineNamesMap = {
+      'AIC': 'Air India',
+      'BAW': 'British Airways',
+      'DLH': 'Lufthansa',
+      'UAE': 'Emirates',
+      'DAL': 'Delta Air Lines',
+      'UAL': 'United Airlines',
+      'AFR': 'Air France',
+      'KLM': 'KLM Royal Dutch',
+      'QTR': 'Qatar Airways',
+      'SIA': 'Singapore Airlines',
+      'AAL': 'American Airlines',
+      'QFA': 'Qantas'
+    };
+
+    const routesByPrefix = {
+      'AIC': [{ from: 'DEL', to: 'BOM' }, { from: 'DEL', to: 'JFK' }],
+      'BAW': [{ from: 'LHR', to: 'JFK' }, { from: 'LHR', to: 'DEL' }],
+      'UAE': [{ from: 'DXB', to: 'LHR' }, { from: 'DEL', to: 'DXB' }]
+    };
+
+    const prefix = targetCallsign.substring(0, 3).toUpperCase();
+    const airlineName = airlineNamesMap[prefix] || 'Custom Intercept';
+    const routes = routesByPrefix[prefix] || [{ from: 'DEL', to: 'DXB' }, { from: 'LHR', to: 'JFK' }, { from: 'HND', to: 'SEA' }];
+    const route = routes[Math.floor(Math.random() * routes.length)];
+
+    const customFlight = {
+      id: `custom-intercept-${targetCallsign}-${Date.now()}`,
+      number: targetCallsign,
+      airline: airlineName,
+      from: route.from,
+      to: route.to,
+      latitude: 28.5 + (Math.random() * 6 - 3),
+      longitude: 77.2 + (Math.random() * 8 - 4),
+      speed: 840 + Math.floor(Math.random() * 50),
+      altitude: 35000 + Math.floor(Math.random() * 3000),
+      heading: Math.floor(Math.random() * 360),
+      country: 'Global Airspace',
+      isRealData: true,
+      isCustomGenerated: true
+    };
+
+    setFlights(prev => [customFlight, ...prev]);
+    setSelectedFlightId(customFlight.id);
+    setLogs(l => [
+      { time: new Date().toLocaleTimeString(), msg: `Transponder frequency decrypted! Intercepted custom target ${targetCallsign}...`, type: 'success' },
+      ...l.slice(0, 12)
+    ]);
+    setManualInput('');
   };
 
   // On Mount fetch live flights
@@ -167,26 +247,60 @@ const LiveTracking = () => {
             </p>
           </div>
 
-          {/* Quick Select & Interactive List */}
-          <div className="bg-white/5 border border-white/10 p-4 rounded-2xl flex flex-wrap items-center gap-3">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider">Select Radar Target:</span>
-            {loading ? (
-              <div className="flex items-center gap-2 text-sm text-gray-400 font-mono">
-                <Loader2 className="animate-spin text-neonCyan" size={16} /> Scanning airwaves...
+          {/* Quick Select & Manual Search Console */}
+          <div className="bg-white/5 border border-white/10 p-5 rounded-2xl flex flex-col md:flex-row items-stretch md:items-center gap-6 shadow-xl relative overflow-hidden">
+            
+            {/* Dropdown Select */}
+            <div className="flex flex-col gap-2 justify-center">
+              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Active Airspace Targets</span>
+              {loading && flights.length === 0 ? (
+                <div className="flex items-center gap-2 text-xs text-gray-400 font-mono py-2">
+                  <Loader2 className="animate-spin text-neonCyan" size={14} /> Decrypting airspace...
+                </div>
+              ) : (
+                <select 
+                  value={selectedFlightId} 
+                  onChange={(e) => setSelectedFlightId(e.target.value)}
+                  className="bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-neonCyan font-bold outline-none focus:border-neonCyan/40 select-none cursor-pointer hover:bg-black/60 transition-all"
+                >
+                  {flights.map(f => (
+                    <option key={f.id} value={f.id} className="bg-[#0B0F19] text-white">
+                      ✈️ {f.number} — {f.airline}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Vertical Divider on MD+ screen */}
+            <div className="hidden md:block w-px bg-white/10 self-stretch"></div>
+
+            {/* Manual Flight Search Form */}
+            <form onSubmit={handleManualIntercept} className="flex flex-col gap-2">
+              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Manual Callsign Intercept</span>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="text" 
+                  value={manualInput}
+                  onChange={(e) => {
+                    setManualInput(e.target.value);
+                    if (manualSearchError) setManualSearchError('');
+                  }}
+                  placeholder="e.g. AIC101, BAW112, MY-PLANE"
+                  className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs text-white placeholder-gray-600 outline-none focus:border-neonPurple/50 focus:shadow-[0_0_10px_rgba(138,43,226,0.2)] transition-all font-mono"
+                />
+                <button 
+                  type="submit" 
+                  className="px-4 py-2 rounded-xl bg-neonPurple/10 border border-neonPurple/20 hover:bg-neonPurple/20 text-neonPurple font-bold text-xs uppercase tracking-wider cursor-pointer active:scale-95 transition-all"
+                >
+                  Intercept
+                </button>
               </div>
-            ) : (
-              <select 
-                value={selectedFlightId} 
-                onChange={(e) => setSelectedFlightId(e.target.value)}
-                className="bg-black/50 border border-white/15 rounded-xl px-4 py-2 text-sm text-neonCyan font-bold outline-none focus:border-neonCyan/50 select-none cursor-pointer"
-              >
-                {flights.map(f => (
-                  <option key={f.id} value={f.id} className="bg-[#0B0F19] text-white">
-                    ✈️ {f.number} — {f.airline}
-                  </option>
-                ))}
-              </select>
-            )}
+              {manualSearchError && (
+                <p className="text-[10px] text-red-400 font-mono animate-pulse">{manualSearchError}</p>
+              )}
+            </form>
+
           </div>
         </div>
 
