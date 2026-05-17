@@ -39,7 +39,7 @@ async function generateGeminiContentWithRetry(geminiHistory) {
             const ai = new GoogleGenAI({ apiKey: key });
 
             const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
+                model: 'gemini-2.0-flash',
                 contents: geminiHistory,
                 config: {
                     systemInstruction: SYSTEM_PROMPT,

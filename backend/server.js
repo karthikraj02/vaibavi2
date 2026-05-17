@@ -3,10 +3,12 @@ if (dns.setDefaultResultOrder) {
   dns.setDefaultResultOrder('ipv4first');
 }
 
+const dotenv = require('dotenv');
+dotenv.config();
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const dotenv = require('dotenv');
 const http = require('http');
 const { Server } = require('socket.io');
 const { stripeWebhook } = require('./controllers/webhookController');
@@ -20,8 +22,6 @@ const trackingRoutes = require('./routes/trackingRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
 const duffelRoutes = require('./routes/duffelRoutes');
 const flightRoutes = require('./routes/flightRoutes');
-
-dotenv.config();
 
 const app = express();
 
