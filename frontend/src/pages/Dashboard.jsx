@@ -129,6 +129,28 @@ const Dashboard = () => {
           </div>
         </div>
 
+        {/* Live Flight Radar Tracker Promo Banner */}
+        <div className="relative glass-panel p-6 rounded-3xl border border-white/10 mb-8 overflow-hidden bg-gradient-to-r from-black/40 via-neonCyan/5 to-neonPurple/5 flex flex-col sm:flex-row items-center justify-between gap-6 group hover:border-neonCyan/40 transition-all duration-300 shadow-2xl">
+          <div className="absolute top-0 right-0 w-80 h-80 bg-neonCyan/10 rounded-full filter blur-[50px] -mr-20 -mt-20 pointer-events-none group-hover:bg-neonCyan/15 transition-all duration-500"></div>
+          <div className="flex items-center gap-5 relative z-10">
+            <div className="w-14 h-14 rounded-2xl bg-neonCyan/10 border border-neonCyan/20 flex items-center justify-center text-neonCyan shadow-[0_0_15px_rgba(0,240,255,0.15)] group-hover:scale-105 transition-all duration-300">
+              <Plane className="animate-pulse" size={28} />
+            </div>
+            <div className="space-y-1">
+              <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                Launch Tactical Airspace Tracker <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-md font-extrabold uppercase animate-pulse">Live Radar</span>
+              </h3>
+              <p className="text-xs text-gray-400 font-light">Monitor real-time airplane telemetry, flight curves, coordinates, outside temperatures, and pilot logs.</p>
+            </div>
+          </div>
+          <Link 
+            to="/tracking" 
+            className="relative z-10 neon-button bg-gradient-to-r from-neonCyan to-blue-600 px-6 py-3 rounded-full font-bold text-sm tracking-wide shadow-md hover:shadow-[0_0_20px_rgba(0,240,255,0.4)] whitespace-nowrap active:scale-95 transition-all cursor-pointer"
+          >
+            Launch Radar Feed →
+          </Link>
+        </div>
+
         {/* Stats Metrics Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           <div 

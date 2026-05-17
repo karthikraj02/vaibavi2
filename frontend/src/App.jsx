@@ -8,6 +8,7 @@ import FlightSearch from './pages/FlightSearch';
 import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import MyTickets from './pages/MyTickets';
+import LiveTracking from './pages/LiveTracking';
 import AIChat from './components/AIChat';
 import { Plane, Sparkles } from 'lucide-react';
 
@@ -27,6 +28,9 @@ const Navbar = ({ onLoginClick }) => {
         <div className="flex items-center space-x-6">
           <Link to="/search" className="text-gray-300 hover:text-neonCyan font-medium transition-colors duration-300 flex items-center gap-1">
              Search Flights
+          </Link>
+          <Link to="/tracking" className="text-gray-300 hover:text-neonCyan font-medium transition-colors duration-300 flex items-center gap-1">
+             Live Tracking
           </Link>
           {user ? (
             <>
@@ -98,6 +102,7 @@ function AppContent() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/tickets" element={<MyTickets />} />
+          <Route path="/tracking" element={<LiveTracking />} />
         </Routes>
       </main>
       <Login isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
