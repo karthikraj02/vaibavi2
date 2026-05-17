@@ -113,6 +113,37 @@ const FlightSearch = () => {
   const [searchDate, setSearchDate] = useState('');
   const [activeSearch, setActiveSearch] = useState({ from: '', to: '' });
 
+  const [showFromSuggestions, setShowFromSuggestions] = useState(false);
+  const [showToSuggestions, setShowToSuggestions] = useState(false);
+
+  const fromSuggestions = useMemo(() => {
+    if (!searchFrom.trim()) return [];
+    const q = searchFrom.toLowerCase();
+    return Object.entries(airportLookup)
+      .filter(([code, info]) => {
+        return code.toLowerCase().includes(q) || 
+               (info.city || '').toLowerCase().includes(q) || 
+               (info.country || '').toLowerCase().includes(q) || 
+               (info.full || '').toLowerCase().includes(q);
+      })
+      .slice(0, 5)
+      .map(([code, info]) => ({ code, ...info }));
+  }, [searchFrom]);
+
+  const toSuggestions = useMemo(() => {
+    if (!searchTo.trim()) return [];
+    const q = searchTo.toLowerCase();
+    return Object.entries(airportLookup)
+      .filter(([code, info]) => {
+        return code.toLowerCase().includes(q) || 
+               (info.city || '').toLowerCase().includes(q) || 
+               (info.country || '').toLowerCase().includes(q) || 
+               (info.full || '').toLowerCase().includes(q);
+      })
+      .slice(0, 5)
+      .map(([code, info]) => ({ code, ...info }));
+  }, [searchTo]);
+
   const handleCarrierToggle = (airline) => {
     setSelectedCarriers(prev => 
       prev.includes(airline) 
@@ -183,14 +214,86 @@ const FlightSearch = () => {
           <h2 className="text-4xl font-extrabold mb-8 text-white tracking-tight">Locate Flights</h2>
           
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-black/20 p-4 rounded-2xl border border-white/5">
-            <div className="bg-white/5 rounded-xl p-3 flex items-center border border-white/10 hover:border-neonCyan/50 transition-colors">
+            <div className="bg-white/5 rounded-xl p-3 flex items-center border border-white/10 hover:border-neonCyan/50 transition-colors relative">
               <PlaneTakeoff className="text-neonCyan mr-3 shrink-0" size={20} />
-              <input type="text" placeholder="From (e.g. DEL)" value={searchFrom} onChange={e => setSearchFrom(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} className="outline-none w-full bg-transparent text-white placeholder-gray-400" />
+              <div className="relative w-full">
+                <input 
+                  type="text" 
+                  placeholder="From (e.g. DEL)" 
+                  value={searchFrom} 
+                  onChange={e => {
+                    setSearchFrom(e.target.value);
+                    setShowFromSuggestions(true);
+                  }} 
+                  onFocus={() => setShowFromSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowFromSuggestions(false), 200)}
+                  onKeyDown={e => e.key === 'Enter' && handleSearch()} 
+                  className="outline-none w-full bg-transparent text-white placeholder-gray-400" 
+                />
+                
+                {showFromSuggestions && fromSuggestions.length > 0 && (
+                  <div className="absolute left-[-44px] right-[-14px] mt-4 bg-[#0F1424]/98 border border-white/10 rounded-2xl shadow-2xl z-[100] overflow-hidden backdrop-blur-xl max-h-64 overflow-y-auto">
+                    {fromSuggestions.map(airport => (
+                      <div 
+                        key={airport.code} 
+                        onClick={() => {
+                          setSearchFrom(airport.code);
+                          setShowFromSuggestions(false);
+                        }}
+                        className="px-4 py-3.5 hover:bg-neonCyan/15 cursor-pointer flex items-center justify-between border-b border-white/5 last:border-b-0 group transition-all duration-150"
+                      >
+                        <div className="flex flex-col min-w-0 pr-2">
+                          <span className="font-bold text-sm text-white group-hover:text-neonCyan transition-colors truncate">{airport.city} ({airport.code})</span>
+                          <span className="text-[10px] text-gray-400 truncate max-w-[170px] mt-0.5">{airport.full}</span>
+                        </div>
+                        <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest shrink-0">{airport.country}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="bg-white/5 rounded-xl p-3 flex items-center border border-white/10 hover:border-neonCyan/50 transition-colors">
+            
+            <div className="bg-white/5 rounded-xl p-3 flex items-center border border-white/10 hover:border-neonCyan/50 transition-colors relative">
               <PlaneLanding className="text-neonCyan mr-3 shrink-0" size={20} />
-              <input type="text" placeholder="To (e.g. JFK)" value={searchTo} onChange={e => setSearchTo(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} className="outline-none w-full bg-transparent text-white placeholder-gray-400" />
+              <div className="relative w-full">
+                <input 
+                  type="text" 
+                  placeholder="To (e.g. JFK)" 
+                  value={searchTo} 
+                  onChange={e => {
+                    setSearchTo(e.target.value);
+                    setShowToSuggestions(true);
+                  }} 
+                  onFocus={() => setShowToSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowToSuggestions(false), 200)}
+                  onKeyDown={e => e.key === 'Enter' && handleSearch()} 
+                  className="outline-none w-full bg-transparent text-white placeholder-gray-400" 
+                />
+                
+                {showToSuggestions && toSuggestions.length > 0 && (
+                  <div className="absolute left-[-44px] right-[-14px] mt-4 bg-[#0F1424]/98 border border-white/10 rounded-2xl shadow-2xl z-[100] overflow-hidden backdrop-blur-xl max-h-64 overflow-y-auto">
+                    {toSuggestions.map(airport => (
+                      <div 
+                        key={airport.code} 
+                        onClick={() => {
+                          setSearchTo(airport.code);
+                          setShowToSuggestions(false);
+                        }}
+                        className="px-4 py-3.5 hover:bg-neonCyan/15 cursor-pointer flex items-center justify-between border-b border-white/5 last:border-b-0 group transition-all duration-150"
+                      >
+                        <div className="flex flex-col min-w-0 pr-2">
+                          <span className="font-bold text-sm text-white group-hover:text-neonCyan transition-colors truncate">{airport.city} ({airport.code})</span>
+                          <span className="text-[10px] text-gray-400 truncate max-w-[170px] mt-0.5">{airport.full}</span>
+                        </div>
+                        <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest shrink-0">{airport.country}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
+
             <div onClick={() => dateRef.current?.showPicker?.()} className="bg-white/5 rounded-xl p-3 flex items-center border border-white/10 hover:border-neonPurple/50 transition-colors cursor-pointer">
               <Calendar className="text-neonPurple mr-3 shrink-0" size={20} />
               <input ref={dateRef} type="date" value={searchDate} onChange={e => setSearchDate(e.target.value)} className="outline-none w-full bg-transparent text-white text-sm opacity-80 cursor-pointer [color-scheme:dark]" style={{ minHeight: '24px' }} />
