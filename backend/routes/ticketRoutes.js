@@ -220,22 +220,39 @@ router.post('/send-email', async (req, res) => {
             attachments: [{ filename: `FlightAgent-ETicket-${bookingRef}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }]
         };
 
-        const info = await transporter.sendMail(mailOptions);
-        
+        let emailSent = false;
+        let emailErrorMessage = '';
         let etherealUrl = '';
-        if (!isGmail) {
-            etherealUrl = nodemailer.getTestMessageUrl(info);
-            console.log('Ethereal preview URL:', etherealUrl);
+        let info;
+
+        try {
+            info = await transporter.sendMail(mailOptions);
+            emailSent = true;
+            if (!isGmail) {
+                etherealUrl = nodemailer.getTestMessageUrl(info);
+                console.log('Ethereal preview URL:', etherealUrl);
+            }
+        } catch (mailErr) {
+            console.error('Nodemailer SMTP failed:', mailErr.message);
+            emailErrorMessage = mailErr.message;
         }
 
-        res.json({ 
-            success: true, 
-            message: isGmail ? 'E-ticket sent to ' + passengerEmail : 'E-ticket sent via test service to ' + passengerEmail,
-            etherealUrl
-        });
+        if (emailSent) {
+            res.json({ 
+                success: true, 
+                message: isGmail ? 'E-ticket sent to ' + passengerEmail : 'E-ticket sent via test service to ' + passengerEmail,
+                etherealUrl
+            });
+        } else {
+            res.json({
+                success: true,
+                message: 'E-Ticket generated successfully! (Note: Email delivery skipped: ' + emailErrorMessage + ')',
+                emailFailed: true
+            });
+        }
     } catch (error) {
         console.error('Email ticket error:', error);
-        res.status(500).json({ success: false, message: 'Failed to send: ' + error.message });
+        res.status(500).json({ success: false, message: 'Failed to generate ticket: ' + error.message });
     }
 });
 
